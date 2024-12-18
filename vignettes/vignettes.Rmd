@@ -1,0 +1,126 @@
+---
+title: "idiffomix: integrated differential analysis of multi-omics data using a joint mixture model"
+author: "Koyel Majumdar, Florence Jaffrézic, Andrea Rau, Isobel Claire Gormley, Thomas Brendan Murphy"
+output: rmarkdown::html_vignette
+always_allow_html: true
+vignette: >
+  %\VignetteIndexEntry{idiffomix: integrated differential analysis of multi-omics data using a joint mixture model}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}{inputenc}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(eval = TRUE)
+#knitr::opts_chunk$set(dev = 'png')
+#knitr::opts_chunk$set(dpi=100)
+```
+
+# Installation
+To install this package, start R (version "4.3") and enter:
+
+```{r biocsetup, eval=FALSE}
+library(plotly)
+library(ggplot2)
+library(foreach)
+library(doParallel)
+
+ # library(devtools)
+ # install_github('koyelucd/idiffomix',force = TRUE)
+ # library(idiffomix)
+```
+
+# Introduction
+
+Gene expression and DNA methylation are two interconnected biological processes and understanding their relationship is important in advancing understanding in diverse areas, including disease pathogenesis, environmental adaptation, developmental biology, and therapeutic responses. Differential analysis, including the identification of differentially methylated cytosine-guanine dinucleotide (CpG) sites (DMCs) and differentially expressed genes (DEGs) between two conditions, such as healthy and affected samples, can aid understanding of biological processes and disease progression. Typically, gene expression and DNA methylation data 
+are analysed independently to identify DMCs and DEGs which are further analysed to explore relationships between them, or methylation data are aggregated to gene level for analysis. Such approaches ignore the inherent dependencies and biological structure within these related data. 
+
+The package **idiffomix** contains a joint mixture model is proposed that integrates information from the two data types at the modelling stage to capture their inherent dependency structure, enabling simultaneous identification of DMCs and DEGs. The model leverages a joint likelihood function that accounts for the nested structure in the data, with parameter estimation performed using an expectation-maximisation algorithm.
+
+This document gives a quick tour of the functionalities in **idiffomix**. See `help(package="idiffomix")` for further details and references provided by `citation("idiffomix")`.
+
+# Walk through
+
+## Prerequisites
+Before starting the **idiffomix** walk through, the user should have a working R software environment installed on their machine. The **idiffomix** package has the following dependencies which, if not already installed on the machine will automatically be installed along with the package: **foreach, doParallel, parallel, mclust, stats, utils, edgeR, magrittr, ggplot2, scales, tidyr, dplyr, reshape2, gridExtra, grid, tidyselect, cowplot**.
+
+Assuming that the user has the **idiffomix** package installed, the user first needs to load the package:
+
+```{r package, include=TRUE, echo=TRUE, message=FALSE,warning=FALSE}
+library(idiffomix)
+```
+
+## Loading the data
+The **idiffomix** package provides simulated gene expression data, methylation data and gene chromosome data. The data are simulated based on gene expression and methylation data of matched healthy and breast invasive carcinoma tumour samples from The Cancer Genome Atlas (TCGA) that are are publicly available in the Genomic Data Commons (GDC) data portal. The complete data are also available in the [GitHub](https://github.com/koyelucd/idiffomix). Due to computational complexities of the package which needs parallel processing and package testing limitations, simulated data are used for this walk-through. The simulated data are assumed to be representing gene expression and methylation data from two biological conditions (benign and tumour) collected from N=4 patients. The genes and CpG sites are assumed to be located on 2 chromosomes (chromosome 1 and 2). Each gene has a number of CpG sites associated with it. 
+
+```{r data,include=TRUE, echo=TRUE}
+data(gene_expression_data)
+data(methylation_data)
+data(gene_chromosome_data)
+```
+
+## Transforming the data
+The RNA-Seq data consisted of raw counts depicting the gene expression levels. To ensure data quality, only genes whose sum of expression counts across both biological conditions $> 5$ were retained. The data were normalized to account for 
+differences in library sizes. The normalized count data were used to obtain CPM values which were further log-transformed to obtain log-CPM values. Given the paired design of the motivating setting, the log-fold changes between the tumour and benign samples were calculated for each gene in every patient and used in the subsequent analyses. For the methylation array data, the \textit{beta} values at the CpG sites were logit transformed to M-values. Similar to the RNA-Seq data, given the paired design, the difference in M-values
+between tumour and benign samples were calculated for each CpG site in every patient and used in the subsequent analyses. The function `data_transformation()` filters and transforms the data and returns a list with two dataframes. The transformed gene expression data and the transformed methylation data are returned as dataframes.
+
+```{r data_transformation, include=TRUE, echo=TRUE}
+N <- 4
+data_transformed = data_transformation(seq_data=gene_expression_data,
+                                       meth_data=methylation_data,
+                                       gene_chr=gene_chromosome_data,
+                                       N=N)
+```
+
+## Applying the joint mixture model to identify DMCs and DEGs
+A joint mixture model approach, termed **idiffomix***, is proposed for the integrated differential analysis of gene expression data and methylation array data that accounts for their nested dependency structure. A key dependency matrix parameter is used in the joint mixture model to allow the methylation state of a CpG site
+to depend on the expression level status of the gene to which it is associated. The model parameters are estimated via an EM algorithm. In the E-step, as the expected values of the latent variables  are intractable, approximate but tractable estimates are employed. Due to independence of chromosomes and to ease the computational burden, the model is fitted to each chromosome independently. When applying to real dataset the parallel_process argument should be set to TRUE for efficient execution.
+Gene expression levels are modeled to undergo three state changes between benign and tumor conditions: downregulated (E-, negative log-fold change), upregulated (E+, positive log-fold change), or non-differentially expressed (E0, log-fold change near zero). Similarly, methylation levels at CpG sites are classified as hypomethylated (M-, negative M-value difference), hypermethylated (M+, positive M-value difference), or non-differentially methylated (M0, M-value difference near zero).  Under **idiffomix**, these changes are modeled using \emph{K = 3} and \emph{L = 3} component mixture models for gene expression and methylation, respectively.  
+The model parameters are: 
+\itemize{
+\item tau - The proportion of genes belonging to K clusters.
+\item pi - A matrix containing the probability of a CpG site belonging to cluster \emph{l}, given its associated associated gene belongs to cluster \emph{k}.
+\item mu - The mean for each component of the gene expression data. If there is more than one component, this is a matrix whose \emph{k}th column is the mean of the \emph{k}th component of the mixture model.
+\item sigma - The variance for each component of the gene expression data.
+\item lambda - The mean for each component of the methylation data. If there is more than one component, this is a matrix whose \emph{l}th column is the mean of the \emph{l}th component of the mixture model.
+\item rho - The variance for each component of the methylation data.
+\item U - A dataframe containing the posterior probabilities of genes belonging to the \emph{K = 3} clusters.
+\item V - A dataframe containing the posterior probabilities of CpG sites belonging to the \emph{L = 3} clusters.
+}
+The function `idiffomix()` takes the transformed data as input and applies the joint mixture model to estimate the model parameters and the DMCs and DEGs.
+
+```{r idiffomix, include=TRUE, echo=TRUE}
+N <- 4
+data_output = idiffomix(seq_data=data_transformed$seq_transformed,
+                        meth_data=data_transformed$meth_transformed,
+                        gene_chr=gene_chromosome_data,
+                        N=N, K=3, L=3, probs=c(0.25,0.75),
+                        parallel_process = FALSE)
+
+print(data_output$tau[[1]])
+head(data_output$seq_classification)
+```
+## Plotting the conditional probabilities estimated for each chromosome
+The conditional probabilities estimated when the joint mixture model is applied to data from a chromosome can be visualized.
+Panel A displays the probability of a gene in the chromosome belonging to each of the K clusters.
+Panel B details the estimated matrix pi of conditional probabilities of a CpG site's cluster membership, given its gene's cluster.
+Panel C details the conditional probabilities of a gene belonging to cluster $k$ given a single CpG site associated with the gene belongs to cluster $l$, computed using Bayes' theorem, given tau and pi.
+
+```{r chromosome_plot, include=TRUE, echo=TRUE,fig.width=8, fig.height=6,dev = 'png',warning=FALSE}
+plot(data_output,what="chromosome",CHR=1, Gene=NULL,K=3,L=3,
+     gene_cluster_name=c( "E-","E0","E+"),
+     cpg_cluster_name=c( "M-","M0","M+"))
+```
+## Plotting the estimated posterior probability of the gene belonging to the K clusters
+The log-fold changes and differences in M-values and the estimated posterior probability of the gene belonging to the K clusters can be visualized.
+Panel A shows the log-fold change and difference in M-values for the given gene and its associated CpG sites while Panel B shows the posterior probabilities of cluster membership for the gene under idiffomix.
+
+```{r gene_plot, include=TRUE, echo=TRUE,fig.width=14, fig.height=8,dev = 'png',warning=FALSE}
+plot(data_output,what="gene",CHR=1, Gene="gene_1",K=3,L=3,
+     gene_cluster_name=c( "E-","E0","E+"),
+     cpg_cluster_name=c( "M-","M0","M+"))
+```
