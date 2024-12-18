@@ -1,7 +1,7 @@
 Package: idiffomix
 Type: Package
 Title: Integrated Differential Analysis of Multi-Omics Data using a Joint Mixture Model
-Version: 0.1.0
+Version: 1.0.0
 Authors@R: c(person("Koyel","Majumdar",email="koyelmajumdar.phdresearch@gmail.com",
         role=c("cre","aut"),comment = c(ORCID = "0000-0001-6469-488X")),
         person("Isobel Claire","Gorley",email="claire.gormley@ucd.ie",
